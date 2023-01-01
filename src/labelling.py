@@ -6,7 +6,7 @@ import sqlite3
 import shutil 
 import os 
 from PIL import Image
-# from useful import list_files
+# import useful as su
 import os
 from os import listdir
 from os.path import isfile, join
@@ -23,34 +23,69 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 
 # load_labels(), show_label_count()
-def load_labels():
-    '''Load labelled users'''
-    query = '''
+def load_labels(include_all=False, group_bots=True):
+    '''Load usernames and their labels. 
+    
+    parameters
+    include_all: if true, returns the union all of labels and manual_labelling table 
+    group_bots: if true, otherbot, type 3 become type 1 else only legit users and bots are returned'''
+    if include_all == True: 
+        return pd.read_sql_query('''
+                                 select distinct * from manual_labelling
+                                 union all 
+                                 select distinct * from labels
+                                 ''',
+                                 con)
+
+    query = f'''
     with all_labels as (
-    select * from labels 
-    union all 
-    select * from manual_labelling
+    select 
+        distinct 
+        username 
+        , label 
+        , avg(label) over(partition by username) as avg_label
+        , case 
+            when group_concat(labelling_technique) over(partition by username) like "%miss_labelled_corrected%" and labelling_technique = "miss_labelled_corrected" then 1
+            when group_concat(labelling_technique) over(partition by username) not like "%miss_labelled_corrected%" then 1
+            else 0 
+            end as row_to_keep --if username has a miss label corrected and another labelling technique, then the correction is the best in quality. If username have not mlc then we still want it
+        , group_concat(labelling_technique) over(partition by username) as labelling_technique
+        
+    from (select distinct * from labels
+          union all 
+          select distinct * from manual_labelling) 
     )
 
-    select 
-        distinct
-        username 
-        , avg(case 
-                when label2 is null then label 
-                else (label + label2) / 2
-                end) as label
-        , group_concat(labelling_technique) labelling_technique
+    select
+        username
+        , case 
+            when {group_bots} and label = 3 then 1
+            else label 
+            end as label
+        , labelling_technique
 
-    from all_labels 
+    from all_labels
     where 1=1
-        and labelling_technique is not null
         and labelling_technique != 'fakelabelling' 
-    group by username 
-    having avg(label) in (0, 1) 
+        and row_to_keep == 1
+        and label in (0, 1, 3)
+        and label = avg_label
+        and labelling_technique != "manual_labelling" --If a user has only one labelling technique and it's manual, the user hasn't been checked a second time
+
+    --group by username 
+
     '''
 
     return pd.read_sql_query(query, con)
 
+def load_table(table):
+    query = f'''
+    select 
+        distinct
+        *
+        
+    from {table}'''
+    return pd.read_sql_query(query, con)
 
 def load_main():
     query = '''
@@ -105,24 +140,26 @@ class Mypandas(pd.DataFrame):
 
     def column_user_distribution (self, column_to_analyse, rmv_values=[], rmv_labelled_values=True):
         # Load and split data
-        df_labels = load_labels()
+        df_labels = load_labels(include_all=True)
         bots = df_labels.query('label == 1')['username'].tolist()
+        otherbots = df_labels.query('label == 3')['username'].tolist()
         legits = df_labels.query('label == 0')['username'].tolist()
         df_main = self.query(f'{column_to_analyse} not in @rmv_values').reset_index(drop=True)
 
         df_main[column_to_analyse] = df_main[column_to_analyse].astype('category')
         df_bots = df_main.query("username in @bots")
+        df_otherbots = df_main.query("username in @otherbots")
         df_legits = df_main.query("username in @legits")
 
         # Counting how many times each categories has been used 
         df_col = df_main[column_to_analyse].value_counts().to_frame().reset_index()
         df_col.columns = [column_to_analyse, "count"]
 
-        for index, sub_df in enumerate([df_main, df_bots, df_legits]):
+        for index, sub_df in enumerate([df_main, df_bots, df_legits, df_otherbots]):
             # Looking at how many distinct users used the categories and how many time the coment has been collected
-            for num in [0, 1]:
+            for num in [0, 3, 1]:
                 sub_df = sub_df[["username", column_to_analyse]]
-                column_name = ["user_count", "bot_count", "legit_count"][index]
+                column_name = ["user_count", "bot_count", "legit_count", 'otherbot_count'][index]
 
                 # Removing duplicates and changing col name
                 if num == 1: 
@@ -146,10 +183,11 @@ class Mypandas(pd.DataFrame):
 
         # Removing values that have been 100% labelled
         if rmv_labelled_values == True:
-            df_col = df_col.query("count != bot_count + legit_count")
+            df_col = df_col.query("count > bot_count + legit_count + otherbot_count")
 
 
         return df_col.sort_values(by="count", ascending=False).reset_index(drop=True)
+
 
 
 
@@ -180,7 +218,6 @@ def list_files(directory, extension=True, path=True, replace=None, subdir=False,
         for (dirpath, dirnames, filenames) in os.walk(directory):
             all_files_names += [(dirpath + '/' + file ).replace('//', '/') for file in filenames]
 
-    print(all_files_names[0])
     if extension == False:
         all_files_names = [[file[:len(file)-file[::-1].index(".")-1]][0] for file in all_files_names]
 
@@ -197,35 +234,41 @@ def list_files(directory, extension=True, path=True, replace=None, subdir=False,
     
     return all_files_names
 
+
+
 # show_user_summary() - Creating a function that I can call whevener I want to see a user's summary. this helps a lot when having to decide on a user class
-def show_user_summary(usernames, show=True):
+def show_user_summary(usernames):
+    # Making sure username is a list
     if type(usernames) == str:
         usernames = [usernames]
     else:
         usernames = list(usernames)
-
     usernames = list(set(usernames))
-    
-    if len(usernames) > 50 and show==True:
+
+    # removing all files from folder
+    if os.path.isdir('data/photos/temprary_user_summary/'):
+        for file in list_files('data/photos/temprary_user_summary/', path=True):
+            os.remove(file)
+
+    # displaying or storing the photos depending on the number ( above 50 is too big for notebook which might crash or become slow)
+    if len(usernames) > 50: 
+        show = False 
         print("Greater than 50")
-        return None
+    else: 
+        show = True
 
     for username in usernames:
         source_path = f"data/photos/image_summary/{username}_image_summary.png"
         look_up_path = f"data/photos/temprary_user_summary/{username}_image_summary.png"
-        
-        # if os.path.isdir('data/photos/image_summary/'):
-        #     for file in list_files('data/photos/image_summary/', path=True):
-        #         os.remove(file)
-
         try:
             if show == True:
                 display(Image.open(source_path))
             else: 
                 shutil.copy(source_path, look_up_path)
         except FileNotFoundError:
-            usernames.remove(username)
-            print(f"file not found for {username}")
+            print(f"File not found for {username}")
+
+
 
 
 
@@ -255,26 +298,38 @@ def show_user_summary(usernames, show=True):
 #         print(f"{key}: {value}")
 
 #     return show_label_count()
-def label_users (new_usernames: list, label: int, labelling_type: str):
-    df_main = pd.read_sql_query('select username from clean_comments_users_last12', con)
-    before_count = df_main.merge(load_labels(), how='left', on='username')['label'].value_counts()
-
-    # Loading labels and creating new labels df
-    # df_labels = pd.read_sql_query('select distinct username from labels', con)
-    # already_labelled_username = df_labels['username'].tolist()
-    # dtypes = {'username': 'object', 'label': 'Int64', 'time': '<M8[ns]', 'label2': 'Int64', 'time2': '<M8[ns]', 'labelling_technique': 'object'}
-
-    # Filtering out already labelled usernames and exporting the data by appending it to existing label table
-    new_labels_data = [[username, label, datetime.now(), np.nan, np.nan, labelling_type] for username in new_usernames]
-    df_new_labels = pd.DataFrame(new_labels_data, columns=['username', 'label', 'time', 'label2', 'time2', 'labelling_technique'])
-    df_new_labels.to_sql('labels', con, if_exists='append', index=False)
 
 
-    after_count = df_main.merge(load_labels(), how='left', on='username')['label'].value_counts()
-    count_diff = {int(i):after_count[int(i)] - before_count[int(i)] for i in after_count.index}
-    print('New labels:')
-    for key, value in count_diff.items():
-        print(f"{key}: {value}")
+
+def label_users(new_usernames: list, label: int, labelling_type: str):
+    dt = datetime.now()
+    data = [[username, label, dt,labelling_type] for username in new_usernames]
+    df = pd.DataFrame(
+                data=data, 
+                columns=['username', 'label', 'time', 'labelling_technique']
+                )
+    df.to_sql('labels', con, if_exists='append', index=False)
+
+# def label_users (new_usernames: list, label: int, labelling_type: str):
+#     df_main = pd.read_sql_query('select username from clean_comments_users_last12', con)
+#     before_count = df_main.merge(load_labels(), how='left', on='username')['label'].value_counts()
+
+#     # Loading labels and creating new labels df
+#     # df_labels = pd.read_sql_query('select distinct username from labels', con)
+#     # already_labelled_username = df_labels['username'].tolist()
+#     # dtypes = {'username': 'object', 'label': 'Int64', 'time': '<M8[ns]', 'label2': 'Int64', 'time2': '<M8[ns]', 'labelling_technique': 'object'}
+
+#     # Filtering out already labelled usernames and exporting the data by appending it to existing label table
+#     new_labels_data = [[username, label, datetime.now(), np.nan, np.nan, labelling_type] for username in new_usernames]
+#     df_new_labels = pd.DataFrame(new_labels_data, columns=['username', 'label', 'time', 'label2', 'time2', 'labelling_technique'])
+#     df_new_labels.to_sql('labels', con, if_exists='append', index=False)
+
+
+#     after_count = df_main.merge(load_labels(), how='left', on='username')['label'].value_counts()
+#     count_diff = {int(i):after_count[int(i)] - before_count[int(i)] for i in after_count.index}
+#     print('New labels:')
+#     for key, value in count_diff.items():
+#         print(f"{key}: {value}")
 
 
 
@@ -289,6 +344,9 @@ from clean_comments_users_last12
 '''
 df_main = pd.read_sql_query(query, con)
 df_main['posts_days_diff'] = df_main['posts_posted_time'].apply(lambda x: clean_post_posted_time(x) if x != None else x)
+
+
+
 
 def generate_card(username):
     df_user = df_main[df_main["username"]==username].reset_index(drop=True)
@@ -371,8 +429,12 @@ def generate_card(username):
     draw.text((10, 165 + line_breaks * 20), f"{comment}", font=font, fill="red")
 
     posts_days_diff = df_user.loc[0, "posts_days_diff"]
-    color = "white" if video_count > 0 else "red"
-    draw.text((10, 305), f"{posts_days_diff}", font=font, fill=color)
+    color = "white" if posts_days_diff > 0 else "red"
+    draw.text((10, 305), f"{posts_days_diff = }", font=font, fill=color)
+    
+    time_difference = '-'.join(df_user["time_difference"].astype(str))
+    color = "white" if df_user["time_difference"].mean() > 90 else "red"
+    draw.text((10, 325), f"{time_difference = }", font=font, fill=color)
 
 
     # Save screenshot, open it, resize it, add it to global_image and deleting the file
