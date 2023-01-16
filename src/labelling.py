@@ -1,5 +1,6 @@
 from IPython.display import Image as IImage, display, clear_output
 import pandas as pd 
+import plotly.express as px
 import numpy as np
 from datetime import datetime
 import sqlite3 
@@ -23,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 
 # load_labels(), show_label_count()
-def load_labels(include_all=False, group_bots=True):
+def load_labels(include_all=False, group_bots=False):
     '''Load usernames and their labels. 
     
     parameters
@@ -78,13 +79,13 @@ def load_labels(include_all=False, group_bots=True):
 
     return pd.read_sql_query(query, con)
 
-def load_table(table):
+def load_table(table, where='1=1', select='distinct *'):
     query = f'''
     select 
-        distinct
-        *
+        {select}
         
-    from {table}'''
+    from {table}
+    where {where}'''
     return pd.read_sql_query(query, con)
 
 def load_main():
@@ -93,7 +94,9 @@ def load_main():
         distinct
         *
         
-    from clean_comments_users_last12'''
+    from clean_comments_users_last12
+    where 1=1 
+        and follow_count is not null'''
     return pd.read_sql_query(query, con)
 
 
@@ -190,6 +193,29 @@ class Mypandas(pd.DataFrame):
 
 
 
+    def split_df_by_label(self): 
+        '''Subset a df info multiple each having one label. 
+        It returns n dfs, n being number of labels'''
+        return [self.query(f'label == {label}') for label in sorted(self.label.unique())]
+
+
+    def describe_column_by_label(self, column): 
+        '''Describes a given column for each label'''
+        all_dfs = [df[column].describe() for df in self.split_df_by_label()]
+        df_describe = pd.concat(all_dfs, axis=1).astype(int)
+        df_describe.columns = sorted(self.label.unique())
+        
+        df_plolty = df_describe.stack().to_frame().reset_index()
+        df_plolty.columns = ['Statistic', 'Label', 'value']
+        fig = px.histogram(df_plolty,
+                           x='Statistic',
+                           y='value',
+                           color='Label',
+                           barmode='group',
+                           title=f"Summary stats per label for column {column.replace('_', ' ')}"
+                           ).update_layout(yaxis_title=column.replace('_', ' ').title())
+
+        return df_describe, fig
 
 
 
@@ -343,7 +369,7 @@ select
 from clean_comments_users_last12
 '''
 df_main = pd.read_sql_query(query, con)
-df_main['posts_days_diff'] = df_main['posts_posted_time'].apply(lambda x: clean_post_posted_time(x) if x != None else x)
+# df_main['posts_days_diff'] = df_main['posts_posted_time'].apply(lambda x: clean_post_posted_time(x) if x != None else x)
 
 
 
@@ -414,9 +440,9 @@ def generate_card(username):
     color = "white" if video_count > 0 else "red"
     draw.text((10, 85), f"Video count: {video_count}", font=font, fill=color)
 
-    comment_likes = round(df_user["comment_likes"].mean())
-    color = "white" if 200 <= comment_likes < 450 else "red"
-    draw.text((10, 105), f"Comment_likes: {comment_likes}", font=font, fill="white")
+    comments_likes = round(df_user["comments_likes"].mean())
+    color = "white" if 200 <= comments_likes < 450 else "red"
+    draw.text((10, 105), f"Comments_likes: {comments_likes}", font=font, fill="white")
 
     domain = df_user.loc[0, "domain"]
     draw.text((10, 125), f"{domain}", font=font, fill="white")
