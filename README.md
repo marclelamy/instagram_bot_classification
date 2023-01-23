@@ -10,5 +10,5 @@ The project is divided into five steps:
 * Model development & optimization: 
 
 
-
-
+# Status of the project 
+Currently doing the EDA and post labelling data cleaning. 
