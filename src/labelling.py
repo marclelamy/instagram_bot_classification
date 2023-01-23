@@ -94,26 +94,24 @@ def load_main():
         distinct
         *
         
-    from clean_comments_users_last12
+    from new_clean_comments_users_last12
     where 1=1 
         and follow_count is not null'''
     return pd.read_sql_query(query, con)
 
 
-def show_label_count(returnit=False):
-    df_labels = load_labels()
-    df_main = load_main()
-    df_labels = df_main.merge(df_labels, how='left', on='username').query('follow_count.notna() and label in (0, 1)')
-    df_labels = Mypandas(df_labels)
-    
-    if returnit == True: 
-        return df_labels.better_value_count('label')['wo_na'].sort_index()
-    else : 
-        display(df_labels.better_value_count('label'))
-
-
 
 class Mypandas(pd.DataFrame):
+    @classmethod
+    def initialize(self): 
+        pd.DataFrame.better_value_count = self.better_value_count
+        pd.DataFrame.column_user_distribution = self.column_user_distribution
+        pd.DataFrame.split_df_by_colcat = self.split_df_by_colcat
+        pd.DataFrame.describe_column_by_colcat = self.describe_column_by_colcat
+        pd.DataFrame.outliers_bound = self.outliers_bound
+        pd.DataFrame.find_outliers = self.find_outliers
+
+
     def better_value_count(self, column, round=3, dropna=True): 
         '''Returns a Dataframe with value count and value count
         normalized for a specific column.
@@ -138,7 +136,6 @@ class Mypandas(pd.DataFrame):
             df_val_count.columns = ['wo_na', 'wo_na_norm']
 
         return df_val_count.sort_values('wo_na_norm', ascending=False)
-
 
 
     def column_user_distribution (self, column_to_analyse, rmv_values=[], rmv_labelled_values=True):
@@ -192,17 +189,16 @@ class Mypandas(pd.DataFrame):
         return df_col.sort_values(by="count", ascending=False).reset_index(drop=True)
 
 
-
-    def split_df_by_label(self): 
+    def split_df_by_colcat(self, col): 
         '''Subset a df info multiple each having one label. 
         It returns n dfs, n being number of labels'''
-        return [self.query(f'label == {label}') for label in sorted(self.label.unique())]
+        return [self.query(f'{col} == {category}') for category in sorted(self[col].unique())]
 
 
-    def describe_column_by_label(self, column): 
-        '''Describes a given column for each label'''
-        all_dfs = [df[column].describe() for df in self.split_df_by_label()]
-        df_describe = pd.concat(all_dfs, axis=1).astype(int)
+    def describe_column_by_colcat(self, column, colcat='label'): 
+        '''Describes a given column for each value of another column'''
+        all_dfs = [df[column].describe() for df in self.split_df_by_colcat(colcat)]
+        df_describe = pd.concat(all_dfs, axis=1).astype(int).iloc[1:] # Removing count column, redundant
         df_describe.columns = sorted(self.label.unique())
         
         df_plolty = df_describe.stack().to_frame().reset_index()
@@ -218,7 +214,35 @@ class Mypandas(pd.DataFrame):
         return df_describe, fig
 
 
+    def outliers_bound(self, col):
+        q1, q3 = self[col].quantile([.25, .75])
+        iqr = q3 - q1
+        lower_bound = q1 - (1.5 * iqr)
+        upper_bound = q3 + (1.5 * iqr)
+        return lower_bound, upper_bound
 
+
+    def find_outliers(self, col, bounds=[]):
+        '''Given a columns, return a pd.Series with True/False for each value'''
+        if len(bounds) == 2: 
+            lower_bound, upper_bound = bounds
+        else: 
+            lower_bound, upper_bound = self.outliers_bound(col)
+
+        return self[col].fillna(self[col].quantile(.5)).apply(lambda x: not lower_bound <= x <= upper_bound)
+
+
+
+def show_label_count(returnit=False):
+    df_labels = load_labels()
+    df_main = load_main()
+    df_labels = df_main.merge(df_labels, how='left', on='username').query('follow_count.notna() and label in (0, 1)')
+    df_labels = Mypandas(df_labels)
+    
+    if returnit == True: 
+        return df_labels.better_value_count('label')['wo_na'].sort_index()
+    else : 
+        display(df_labels.better_value_count('label'))
 
 
 
