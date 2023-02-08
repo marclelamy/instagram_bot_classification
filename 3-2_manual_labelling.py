@@ -75,7 +75,7 @@ def load_users_to_label():
     left join all_labels a using(username)
     where labelling_technique = 'manual_labelling' or a.username is null
     group by 1,2,3,4,5
-    order by p.predicted_label desc, entropy desc
+    order by entropy desc
     ''' 
     
 
@@ -84,11 +84,11 @@ def load_users_to_label():
     # usernames_russe = sl.load_main().query('comment.str.contains("|".join(@chars)) or biography.str.contains("|".join(@chars))')['username'].unique()
 
     # users with high porno or porno + sexy score (bots are mainly porn, )
-    usernames_sexy = pd.read_sql_query('select username from nsfw group by 1 having avg(porn + sexy) > .5', con)['username'].unique()
+    usernames_sexy = pd.read_sql_query('select username from nsfw group by 1 having avg(porn ) > .3', con)['username'].unique()
 
     df = pd.read_sql_query(query, con)
     # df = df.query('username in @usernames_russe').reset_index(drop=True)
-    df = df.query('username in @usernames_sexy').reset_index(drop=True)
+    # df = df.query('username in @usernames_sexy').reset_index(drop=True)
     return df
 
 
@@ -164,10 +164,6 @@ def terminal_infos(df_current_user, color):
 
     for comment in df_current_user['comment']:
         str_to_print += comment + '\n'
-    
-    emoji_dict = df_current_user['emoji_dict'].values[0]
-    for key, value in eval(emoji_dict).items():
-        str_to_print += f'{key} {value} | '
 
     str_to_print += '\n' * 5 + color
 
@@ -299,42 +295,6 @@ def main():
                 label_count[0] += 1
 
 
-        # df_all_labels = pd.concat([df_all_labels, df_user_labelled], axis=0)
 
-        # print(df_all_labels, '\n'*5)
-
-
-# def which_key():
-#     '''Return which arrow key pressed'''
-
-#     key_direction = {pygame.K_LEFT: 'left',
-#                      pygame.K_RIGHT: 'right',
-#                      pygame.K_DOWN: 'down',
-#                      pygame.K_UP: 'up'}
-
-#     while True:
-#         events = pygame.event.get()
-#         for event in events:
-#             if event.type == pygame.KEYDOWN:
-#                 if event.key in key_direction.keys():
-#                     key_direction[event.key]
-#                     break
-#                 else:
-#                     print('WRONG KEY, PRESS AGAIN')
-
-
-#     key_press_choices = {'right': 1, 'up': 0, 'down': 2}
-#     if key_pressed == 'left':
-#         # key_pressed = which_key()
-#         # modify_label(username, key_press_choices[key_pressed]) 
-#         propose_user(username)
-    
-#     elif key_pressed in key_press_choices.keys():
-#         df_all_labels = label_username(df_all_labels, username, key_press_choices[key_pressed])
-#         if key_pressed == 'right': 
-#             count[0] += 1
-#         if key_pressed == 'up': 
-#             count[0] += 1
-
-
-main()
+if __name__ == '__main__':
+    main()
