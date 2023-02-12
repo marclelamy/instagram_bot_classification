@@ -189,17 +189,20 @@ class Mypandas(pd.DataFrame):
         return df_col.sort_values(by="count", ascending=False).reset_index(drop=True)
 
 
-    def split_df_by_colcat(self, col): 
+    def split_df_by_colcat(self, col, itself=False): 
         '''Subset a df info multiple each having one label. 
         It returns n dfs, n being number of labels'''
-        return [self.query(f'{col} == {category}') for category in sorted(self[col].unique())]
+        dfs = [self.query(f'{col} == {category}') for category in sorted(self[col].unique())]
+        if itself == True:
+            dfs = [self] + dfs
+        return dfs
 
 
     def describe_column_by_colcat(self, column, colcat='label'): 
         '''Describes a given column for each value of another column'''
-        all_dfs = [df[column].describe() for df in self.split_df_by_colcat(colcat)]
-        df_describe = pd.concat(all_dfs, axis=1).astype(int).iloc[1:] # Removing count column, redundant
-        df_describe.columns = sorted(self.label.unique())
+        all_dfs = [df[column].describe() for df in self.split_df_by_colcat(colcat, itself=True)]
+        df_describe = pd.concat(all_dfs, axis=1).astype(int)#.iloc[1:] # Removing count column, redundant
+        df_describe.columns = ['all'] + sorted(self.label.astype(int).unique())
         
         df_plolty = df_describe.stack().to_frame().reset_index()
         df_plolty.columns = ['Statistic', 'Label', 'value']
@@ -219,6 +222,9 @@ class Mypandas(pd.DataFrame):
         iqr = q3 - q1
         lower_bound = q1 - (1.5 * iqr)
         upper_bound = q3 + (1.5 * iqr)
+        
+        lower_bound = self[col].min() if lower_bound < self[col].min() else lower_bound
+        upper_bound = self[col].max() if upper_bound > self[col].max() else upper_bound
         return lower_bound, upper_bound
 
 
