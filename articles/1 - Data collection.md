@@ -2,9 +2,8 @@
 
 *This is the first article of a series of five. Here is the previous one, here the next one.*
 
-In this article, I will take you on a journey of exploring the process of collecting and analyzing Instagram data to solve a problem that has been plaguing Instagram for years - identifying bots. WHAT ARE THE BOTS DOING AND WHY ARE THEY DANGEROUS. As someone who has been frustrated by the constant presence of bots on Instagram, I set out my end goal to prove that it is possible to build a model that can accurately predict bots using only public data and no NLP. 
+In this article, I will take you on a journey of exploring the process of collecting and analyzing Instagram data to solve a problem that has been plaguing Instagram for years - identifying bots from legit users. TALK  ABOUT WHAT ARE THE BOTS DOING AND WHY ARE THEY DANGEROUS. As someone who has been frustrated by the constant presence of bots on Instagram, I set out my end goal to prove that it is possible to build a model that can accurately predict bots using only public data and no NLP. 
 
-SPOILER ALERT: I did it with an accuracy, F1 and AUC ~.97 and test/train diff of .03.
 
 The notebook for this step of the process is on [Github](https://github.com/marclelamy/instagram_bot_classification/blob/main/1_data_collection.ipynb).
 
@@ -13,6 +12,8 @@ The notebook for this step of the process is on [Github](https://github.com/marc
 
 INSERT THE FLOW CHART SHOWING THE PATH OF THE DATA
 
+
+It turns out that if you're patient enough and add some time.sleep(random seconds) don't make a request every 10s, you can scrape as much data as you want.
 
 
 ## Collecting comments
