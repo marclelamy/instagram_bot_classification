@@ -94,7 +94,7 @@ def load_main():
         distinct
         *
         
-    from new_clean_comments_users_last12
+    from clean_all_data
     where 1=1 
         and follow_count is not null'''
     return pd.read_sql_query(query, con)
@@ -323,6 +323,8 @@ def show_user_summary(usernames):
                 shutil.copy(source_path, look_up_path)
         except FileNotFoundError:
             print(f"File not found for {username}")
+
+    print(os.getcwd() + '/data/photos/temprary_user_summary/')
 
 
 
