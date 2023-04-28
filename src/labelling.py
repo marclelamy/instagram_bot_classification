@@ -200,7 +200,14 @@ class Mypandas(pd.DataFrame):
 
     def describe_column_by_colcat(self, column, colcat='label'): 
         '''Describes a given column for each value of another column'''
-        all_dfs = [df[column].describe() for df in self.split_df_by_colcat(colcat, itself=True)]
+        all_dfs = []
+        for df in self.split_df_by_colcat(colcat, itself=True): 
+            outlier_bound = self.outliers_bound(column, df)
+            df = df[column].describe()
+            df['lower outlier'] = outlier_bound[0]
+            df['upper outlier'] = outlier_bound[1]
+            all_dfs.append(df)
+
         df_describe = pd.concat(all_dfs, axis=1).astype(int)#.iloc[1:] # Removing count column, redundant
         df_describe.columns = ['all'] + sorted(self.label.astype(int).unique())
         
@@ -217,14 +224,18 @@ class Mypandas(pd.DataFrame):
         return df_describe, fig
 
 
-    def outliers_bound(self, col):
-        q1, q3 = self[col].quantile([.25, .75])
+    def outliers_bound(self, col, df=None):
+        '''Given a column, return the lower and upper bounds for outliers'''
+        if df is None:
+            df = self
+
+        q1, q3 = df[col].quantile([.25, .75])
         iqr = q3 - q1
         lower_bound = q1 - (1.5 * iqr)
         upper_bound = q3 + (1.5 * iqr)
         
-        lower_bound = self[col].min() if lower_bound < self[col].min() else lower_bound
-        upper_bound = self[col].max() if upper_bound > self[col].max() else upper_bound
+        lower_bound = df[col].min() if lower_bound < df[col].min() else lower_bound
+        upper_bound = df[col].max() if upper_bound > df[col].max() else upper_bound
         return lower_bound, upper_bound
 
 
